@@ -30,14 +30,15 @@ if response.ok:
             device_name = device["name"]
             mqtt_topic = f"device/{device_id}/location"
 
-            response = requests.get(f"{traccar_url}/api/positions?deviceId={device_id}&maxResults=1", headers=headers, auth=(username, password))
+            response = requests.get(f"{traccar_url}/api/positions?deviceId={device_id}&maxResults=1", headers=headers)
             if response.ok:
                 location = response.json()[0]
                 latitude = location["latitude"]
                 longitude = location["longitude"]
                 device_time = location["deviceTime"]
+                battery_level = location["attributes"]["batteryLevel"]
 
-                message = {"latitude": latitude, "longitude": longitude, "device_time": device_time}
+                message = {"latitude": latitude, "longitude": longitude, "device_time": device_time, "Battery_level": battery_level}
                 client.publish(mqtt_topic, json.dumps(message))
                 print(f"Published location data for {device_name}: {message}")
             else:
