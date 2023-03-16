@@ -1,0 +1,280 @@
+mysql
+create database keystone;
+grant all privileges on keystone.* to keystone@'localhost' identified by 'password';
+grant all privileges on keystone.* to keystone@'%' identified by 'password'; 
+flush privileges;
+
+
+apt -y install keystone python3-openstackclient apache2 libapache2-mod-wsgi-py3 python3-oauth2client
+cp /etc/keystone/keystone.conf /etc/keystone/keystone.conf.default
+sed -i 's/#memcache_servers = localhost:11211/memcache_servers = 10.10.2.150:11211/g' /etc/keystone/keystone.conf
+sed -i 's|sqlite:////var/lib/keystone/keystone.db|mysql+pymysql://keystone:password@10.10.2.150/keystone|g' /etc/keystone/keystone.conf
+
+
+su -s /bin/bash keystone -c "keystone-manage db_sync"
+keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+export controller=deployment.internal.org
+
+keystone-manage bootstrap --bootstrap-password adminpassword --bootstrap-admin-url https://$controller:5000/v3/ --bootstrap-internal-url https://$controller:5000/v3/ --bootstrap-public-url https://$controller:5000/v3/ --bootstrap-region-id RegionOne
+
+
+
+# Glance Setup
+openstack user create --domain default --project service --password servicepassword glance
+openstack role add --project service --user glance admin
+openstack service create --name glance --description "OpenStack Image service" image
+export controller=deployment.internal.org
+openstack endpoint create --region RegionOne image public https://$controller:9292
+openstack endpoint create --region RegionOne image internal https://$controller:9292
+openstack endpoint create --region RegionOne image admin https://$controller:9292
+
+
+# database for glance
+mysql
+create database glance;
+grant all privileges on glance.* to glance@'localhost' identified by 'password'; 
+grant all privileges on glance.* to glance@'%' identified by 'password'; 
+flush privileges; 
+exit
+
+
+# Install Glance
+apt -y install glance
+mv /etc/glance/glance-api.conf /etc/glance/glance-api.conf.org
+
+# create new /etc/glance/glance-api.conf
+[DEFAULT]
+bind_host = 127.0.0.1
+# RabbitMQ connection info
+transport_url = rabbit://openstack:password@deployment.internal.org
+
+[glance_store]
+stores = file,http
+default_store = file
+filesystem_store_datadir = /var/lib/glance/images/
+
+[database]
+# MariaDB connection info
+connection = mysql+pymysql://glance:password@deployment.internal.org/glance
+
+# keystone auth info
+[keystone_authtoken]
+www_authenticate_uri = https://deployment.internal.org:5000
+auth_url = https://deployment.internal.org:5000
+memcached_servers = deployment.internal.org:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = glance
+password = servicepassword
+# if using self-signed certs on Apache2 Keystone, turn to [true]
+insecure = false
+
+[paste_deploy]
+flavor = keystone
+
+Save file
+
+
+chmod 640 /etc/glance/glance-api.conf
+chown root:glance /etc/glance/glance-api.conf
+su -s /bin/bash glance -c "glance-manage db_sync"
+systemctl restart glance-api
+systemctl enable glance-api
+
+
+nano /etc/nginx/nginx.conf
+# add to the end
+stream {
+    upstream glance-api {
+        server 127.0.0.1:9292;
+    }
+    server {
+        listen 10.10.2.150:9292 ssl;
+        proxy_pass glance-api;
+    }
+    ssl_certificate "/etc/ssl/private/server.pem";
+    ssl_certificate_key "/etc/ssl/private/server.key";
+}
+
+systemctl restart nginx
+
+
+# NOVA
+apt -y install nova-api nova-conductor nova-scheduler nova-novncproxy placement-api python3-novaclient
+mv /etc/nova/nova.conf /etc/nova/nova.conf.org
+nano /etc/nova/nova.conf
+
+# create new
+[DEFAULT]
+osapi_compute_listen = 127.0.0.1
+osapi_compute_listen_port = 8774
+metadata_listen = 127.0.0.1
+metadata_listen_port = 8775
+state_path = /var/lib/nova
+enabled_apis = osapi_compute,metadata
+log_dir = /var/log/nova
+# RabbitMQ connection info
+transport_url = rabbit://openstack:password@deployment.internal.org
+
+[api]
+auth_strategy = keystone
+
+[vnc]
+enabled = True
+novncproxy_host = 127.0.0.1
+novncproxy_port = 6080
+novncproxy_base_url = https://deployment.internal.org:6080/vnc_auto.html
+
+# Glance connection info
+[glance]
+api_servers = https://deployment.internal.org:9292
+
+[oslo_concurrency]
+lock_path = $state_path/tmp
+
+# MariaDB connection info
+[api_database]
+connection = mysql+pymysql://nova:password@deployment.internal.org/nova_api
+
+[database]
+connection = mysql+pymysql://nova:password@deployment.internal.org/nova
+
+# Keystone auth info
+[keystone_authtoken]
+www_authenticate_uri = https://deployment.internal.org:5000
+auth_url = https://deployment.internal.org:5000
+memcached_servers = deployment.internal.org:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = nova
+password = servicepassword
+# if using self-signed certs on Apache2 Keystone, turn to [true]
+insecure = false
+
+[placement]
+auth_url = https://deployment.internal.org:5000
+os_region_name = RegionOne
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = placement
+password = servicepassword
+# if using self-signed certs on Apache2 Keystone, turn to [true]
+insecure = false
+
+[wsgi]
+api_paste_config = /etc/nova/api-paste.ini
+
+chmod 640 /etc/nova/nova.conf
+chgrp nova /etc/nova/nova.conf
+
+
+; MYSQL FOR NOVA
+create database nova; 
+grant all privileges on nova.* to nova@'localhost' identified by 'password'; 
+grant all privileges on nova.* to nova@'%' identified by 'password'; 
+create database nova_api; 
+grant all privileges on nova_api.* to nova@'localhost' identified by 'password'; 
+grant all privileges on nova_api.* to nova@'%' identified by 'password'; 
+create database placement; 
+grant all privileges on placement.* to placement@'localhost' identified by 'password'; 
+grant all privileges on placement.* to placement@'%' identified by 'password'; 
+create database nova_cell0; 
+grant all privileges on nova_cell0.* to nova@'localhost' identified by 'password'; 
+grant all privileges on nova_cell0.* to nova@'%' identified by 'password'; 
+flush privileges; 
+exit
+; 
+
+
+
+
+
+; Placement configuration
+mv /etc/placement/placement.conf /etc/placement/placement.conf.org
+nano /etc/placement/placement.conf
+
+[DEFAULT]
+debug = false
+
+[api]
+auth_strategy = keystone
+
+[keystone_authtoken]
+www_authenticate_uri = https://deployment.internal.org:5000
+auth_url = https://deployment.internal.org:5000
+memcached_servers = deployment.internal.org:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = placement
+password = servicepassword
+# if using self-signed certs on Apache2 Keystone, turn to [true]
+insecure = false
+
+[placement_database]
+connection = mysql+pymysql://placement:password@deployment.internal.org/placement
+
+
+su -s /bin/bash nova -c "nova-manage cell_v2 create_cell --name cell1 --transport-url rabbit://openstack:password@deployment.internal.org --database_connection mysql+pymysql://nova:password@deployment.internal.org/nova"
+
+
+
+systemctl restart ovn-central ovn-northd ovn-controller ovn-host
+
+ovn-nbctl set-connection ptcp:6641:10.10.2.150 -- set connection . inactivity_probe=60000
+ovn-sbctl set-connection ptcp:6642:10.10.2.150 -- set connection . inactivity_probe=60000
+
+ovs-vsctl set open . external-ids:ovn-remote=tcp:10.10.2.150:6642
+ovs-vsctl set open . external-ids:ovn-encap-type=geneve
+ovs-vsctl set open . external-ids:ovn-encap-ip=10.10.2.150
+systemctl restart neutron-server neutron-ovn-metadata-agent nova-compute nginx
+openstack network agent list
+
+
+; Section New 
+openstack project create --domain default --description "Deployment Project" deployment
+openstack user create --domain default --project deployment --password userpassword serverworld
+openstack role create CloudUser
+openstack role add --project deployment --user serverworld CloudUser
+openstack flavor create --id 0 --vcpus 1 --ram 2048 --disk 10 m1.small
+
+
+
+
+# vi /etc/systemd/network/ens34.network
+[Match]
+Name=ens34
+
+[Network]
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+
+ip link set ens34 up
+
+add bridge (any name you like for [br-ens34])
+# ovs-vsctl add-br br-ens34
+
+add a port to the bridge
+replace [ens34] to your own environment
+# ovs-vsctl add-port br-ens34 ens34
+
+map [physnet1] to the bridge (any name you like for [physnet1])
+# ovs-vsctl set open . external-ids:ovn-bridge-mappings=physnet1:br-ens34
+
+
+
+openstack subnet create subnet1 --network sharednet1 \
+--project $projectID --subnet-range 10.0.0.0/24 \
+--allocation-pool start=10.0.0.200,end=10.0.0.254 \
+--gateway 10.0.0.1 --dns-nameserver 10.0.0.10
+
+
+su -s /bin/bash placement -c "placement-manage db sync" ; su -s /bin/bash nova -c "nova-manage api_db sync"; su -s /bin/bash nova -c "nova-manage cell_v2 map_cell0" ; su -s /bin/bash nova -c "nova-manage db sync" ; su -s /bin/bash nova -c "nova-manage cell_v2 create_cell --name cell1"

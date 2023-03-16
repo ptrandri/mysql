@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Send MQTT message</title>
+  </head>
+  <body>
+    <h1>Send MQTT message</h1>
+    <form id="mqtt-form">
+      <label for="message">Message:</label>
+      <input type="text" id="message" name="message" required /><br /><br />
+      <button type="submit">Send</button>
+    </form>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"
+      integrity="sha384-vGH/9+oMzFtkq1ibdNwkfvpIuDBHv/lA7/rZi2H/y+dNF9FTqq+IBvzJ3KYdibIw"
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      var brokerUrl = 'wss://192.168.100.204';
+      var topic = 'device-location';
+      var client = new Paho.MQTT.Client(brokerUrl, 'mqtt-web-client');
+
+      client.connect({
+        onSuccess: onConnect,
+        onFailure: onFailure,
+        useSSL: true,
+      });
+
+      function onConnect() {
+        console.log('Connected to MQTT broker at ' + brokerUrl);
+      }
+
+      function onFailure() {
+        console.error('Failed to connect to MQTT broker at ' + brokerUrl);
+      }
+
+      document.getElementById('mqtt-form').addEventListener('submit', function (event) {
+        event.preventDefault();
+        var message = document.getElementById('message').value;
+        var payload = new Paho.MQTT.Message(message);
+        payload.destinationName = topic;
+        client.send(payload);
+        console.log('Sent message to topic ' + topic + ': ' + message);
+      });
+    </script>
+  </body>
+</html>
